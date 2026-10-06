@@ -47,6 +47,9 @@ DEFAULT_WEIGHTS = {
     "Payment Terms": 5,
 }
 
+# Fixed Gemini model
+GEMINI_MODEL = "gemini-3.8-flash"
+
 
 # ============================================================
 # SAMPLE DATASET
@@ -71,12 +74,16 @@ SAMPLE = pd.DataFrame([
 # ============================================================
 
 def validate(df):
+
     errors = []
 
     required = ["Vendor"] + CRITERIA
 
     # Check required columns
-    missing_cols = [c for c in required if c not in df.columns]
+    missing_cols = [
+        c for c in required
+        if c not in df.columns
+    ]
 
     if missing_cols:
         errors.append(
@@ -86,17 +93,33 @@ def validate(df):
 
     # Check vendor names
     if df["Vendor"].isna().any():
-        errors.append("Vendor names cannot be blank.")
+        errors.append(
+            "Vendor names cannot be blank."
+        )
 
-    if (df["Vendor"].astype(str).str.strip() == "").any():
-        errors.append("Vendor names cannot be blank.")
+    if (
+        df["Vendor"]
+        .astype(str)
+        .str.strip()
+        .eq("")
+        .any()
+    ):
+        errors.append(
+            "Vendor names cannot be blank."
+        )
 
     # Check duplicate vendor names
-    vendor_names = df["Vendor"].astype(str).str.strip().str.lower()
+    vendor_names = (
+        df["Vendor"]
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
 
     if vendor_names.duplicated().any():
         errors.append(
-            "Duplicate vendor names found. Each vendor must be unique."
+            "Duplicate vendor names found. "
+            "Each vendor must be unique."
         )
 
     # Check criterion values
@@ -108,11 +131,17 @@ def validate(df):
         )
 
         if numeric.isna().any():
+
             errors.append(
-                f"{c}: all values must be numeric and between 1 and 10."
+                f"{c}: all values must be numeric "
+                "and between 1 and 10."
             )
 
-        elif ((numeric < 1) | (numeric > 10)).any():
+        elif (
+            (numeric < 1) |
+            (numeric > 10)
+        ).any():
+
             errors.append(
                 f"{c}: scores must be between 1 and 10."
             )
@@ -128,24 +157,29 @@ def score_vendors(df, weights):
 
     out = df.copy()
 
-    # Convert all criteria to numeric
+    # Convert criteria to numeric
     for c in CRITERIA:
+
         out[c] = pd.to_numeric(
             out[c],
             errors="coerce"
         )
 
-    # Calculate weighted score
+    # Weighted score
     out["Overall Score"] = sum(
         out[c] * (weights[c] / 100)
         for c in CRITERIA
     )
 
     # Rank vendors
-    out = out.sort_values(
-        "Overall Score",
-        ascending=False
-    ).reset_index(drop=True)
+    out = (
+        out
+        .sort_values(
+            "Overall Score",
+            ascending=False
+        )
+        .reset_index(drop=True)
+    )
 
     out.insert(
         0,
@@ -160,18 +194,26 @@ def score_vendors(df, weights):
 # GEMINI AI ANALYSIS
 # ============================================================
 
-def get_ai_explanation(ranked, weights, model_name):
+def get_ai_explanation(ranked, weights):
 
     # --------------------------------------------------------
-    # Read API key securely from Streamlit Secrets
+    # Read Gemini API key securely from Streamlit Secrets
     # --------------------------------------------------------
 
     try:
+
         api_key = st.secrets["GEMINI_API_KEY"]
+
     except Exception:
+
         api_key = ""
 
+    # --------------------------------------------------------
+    # Check API key
+    # --------------------------------------------------------
+
     if not api_key:
+
         return (
             None,
             "Gemini API key is not configured. "
@@ -180,14 +222,16 @@ def get_ai_explanation(ranked, weights, model_name):
         )
 
     # --------------------------------------------------------
-    # Check whether google-genai is installed
+    # Check package
     # --------------------------------------------------------
 
     if genai is None or types is None:
+
         return (
             None,
             "The google-genai package is not installed. "
-            "Add google-genai to requirements.txt and redeploy."
+            "Please add google-genai to requirements.txt "
+            "and redeploy the application."
         )
 
     # --------------------------------------------------------
@@ -203,19 +247,23 @@ def get_ai_explanation(ranked, weights, model_name):
     )
 
     # --------------------------------------------------------
-    # Prepare vendor information for Gemini
+    # Prepare vendor records
     # --------------------------------------------------------
 
     records = (
         ranked[
-            ["Rank", "Vendor", "Overall Score"] + CRITERIA
+            [
+                "Rank",
+                "Vendor",
+                "Overall Score"
+            ] + CRITERIA
         ]
         .round(2)
         .to_dict(orient="records")
     )
 
     # --------------------------------------------------------
-    # Construct grounded prompt
+    # Grounded AI prompt
     # --------------------------------------------------------
 
     prompt = f"""
@@ -232,12 +280,12 @@ IMPORTANT RULES:
 2. Do NOT invent facts about vendors.
 
 3. Do NOT invent financial information, certifications,
-   locations, reputation, capacity, delivery history or
-   any other external information.
+   locations, reputation, capacity, delivery history,
+   market reputation or any other external information.
 
 4. Do NOT change the calculated ranking.
 
-5. Do NOT independently calculate a different ranking.
+5. Do NOT independently create a different ranking.
 
 6. Do NOT make an irreversible purchasing decision.
 
@@ -270,12 +318,12 @@ CURRENT LEADER:
 RUNNER-UP:
 
 {
-    runner['Vendor']
+    runner["Vendor"]
     if runner is not None
     else "No runner-up available"
 }
 
-with a score of
+RUNNER-UP SCORE:
 
 {
     f"{runner['Overall Score']:.2f}/10"
@@ -303,7 +351,7 @@ provided vendor data.
 """
 
     # --------------------------------------------------------
-    # Call Gemini
+    # Gemini API request
     # --------------------------------------------------------
 
     try:
@@ -314,13 +362,11 @@ provided vendor data.
 
         response = client.models.generate_content(
 
-            model=model_name,
+            model=GEMINI_MODEL,
 
             contents=prompt,
 
             config=types.GenerateContentConfig(
-
-                temperature=0.2,
 
                 max_output_tokens=700,
 
@@ -346,6 +392,10 @@ provided vendor data.
             )
 
         return response.text, None
+
+    # --------------------------------------------------------
+    # Handle API errors
+    # --------------------------------------------------------
 
     except Exception as exc:
 
@@ -417,29 +467,24 @@ with st.sidebar:
     st.divider()
 
     # --------------------------------------------------------
-    # Gemini settings
+    # AI Analysis
     # --------------------------------------------------------
 
     st.header("2. AI Analysis")
 
-    model_name = st.selectbox(
-        "Gemini Model",
-        [
-            "gemini-2.5-flash",
-            "gemini-2.5-flash-lite",
-        ],
-        index=0
+    st.success(
+        "✓ Gemini 3.8 Flash"
     )
 
     st.caption(
-        "Gemini is used only to explain the calculated "
-        "vendor ranking. The ranking itself is generated "
-        "by the application's scoring engine."
+        "Gemini is used to explain the calculated vendor "
+        "ranking, trade-offs and risks. The ranking itself "
+        "is generated by the application's scoring engine."
     )
 
 
 # ============================================================
-# VENDOR DATA INPUT
+# VENDOR DATA
 # ============================================================
 
 st.subheader("3. Vendor Data")
@@ -464,7 +509,7 @@ with col1:
 
 
 # ------------------------------------------------------------
-# Load sample data
+# Load sample dataset
 # ------------------------------------------------------------
 
 with col2:
@@ -487,7 +532,7 @@ if "vendor_df" not in st.session_state:
 
 
 # ------------------------------------------------------------
-# Process uploaded file
+# Process uploaded CSV
 # ------------------------------------------------------------
 
 if uploaded is not None:
@@ -506,7 +551,7 @@ if uploaded is not None:
 
 
 # ============================================================
-# EDITABLE VENDOR TABLE
+# EDITABLE DATA TABLE
 # ============================================================
 
 df = st.data_editor(
@@ -527,13 +572,15 @@ with st.expander("📘 Scoring Guide"):
 
     st.markdown(
         """
+        **Score range:** 1–10
+
         - **1 = Very weak performance**
         - **10 = Excellent performance**
         - For **Cost**, a higher score means a more
           competitive/lower cost.
         - For all other criteria, higher is better.
-        - The final score is the weighted sum of the
-          six criterion scores.
+        - The final score is calculated using the
+          weighted sum of all six criteria.
         """
     )
 
@@ -574,7 +621,7 @@ if total != 100:
 
 
 # ============================================================
-# CALCULATE VENDOR RANKING
+# CALCULATE RANKING
 # ============================================================
 
 ranked = score_vendors(
@@ -584,7 +631,7 @@ ranked = score_vendors(
 
 
 # ============================================================
-# VENDOR RANKING SECTION
+# VENDOR RANKING
 # ============================================================
 
 st.subheader("4. Vendor Ranking")
@@ -705,8 +752,7 @@ if st.button(
 
         explanation, error = get_ai_explanation(
             ranked,
-            weights,
-            model_name
+            weights
         )
 
     if explanation:
