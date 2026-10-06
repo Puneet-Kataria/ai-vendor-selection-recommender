@@ -1,108 +1,96 @@
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+
 # ============================================================
-# OVERALL SCORE CHART
+# GEMINI IMPORT
 # ============================================================
 
-chart = px.bar(
-    ranked,
-    x="Vendor",
-    y="Overall Score",
-    title="Overall Vendor Score",
-    text="Overall Score"
-)
-
-chart.update_traces(
-    texttemplate="%{text:.2f}",
-    textposition="outside"
-)
-
-chart.update_yaxes(
-    range=[0, 10.8]
-)
-
-st.plotly_chart(
-    chart,
-    use_container_width=True
-)
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
 
 
 # ============================================================
-# WHAT-IF ANALYSIS
+# PAGE CONFIGURATION
 # ============================================================
 
-st.subheader("5. What-if Analysis")
-
-st.write(
-    "Change the weights in the sidebar and observe how "
-    "vendor rankings change when procurement priorities "
-    "change."
-)
-
-st.info(
-    "Example: Increasing the Cost weight may favor a "
-    "lower-cost vendor, while increasing Quality or "
-    "Reliability may favor a different supplier."
+st.set_page_config(
+    page_title="AI Vendor Selection Assistant",
+    page_icon="🏆",
+    layout="wide"
 )
 
 
 # ============================================================
-# AI PROCUREMENT INSIGHT
+# CONSTANTS
 # ============================================================
 
-st.subheader("6. AI Procurement Insight")
+CRITERIA = [
+    "Cost",
+    "Quality",
+    "Delivery",
+    "Reliability",
+    "Sustainability",
+    "Payment Terms"
+]
 
-st.write(
-    "Gemini interprets the calculated ranking and explains "
-    "the recommendation, trade-offs and risks."
-)
+DEFAULT_WEIGHTS = {
+    "Cost": 30,
+    "Quality": 30,
+    "Delivery": 15,
+    "Reliability": 15,
+    "Sustainability": 5,
+    "Payment Terms": 5,
+}
+
+# Fixed Gemini model
+GEMINI_MODEL = "gemini-3.8-flash"
 
 
-if st.button(
-    "🤖 Generate AI Recommendation",
-    type="primary",
-    use_container_width=True
-):
+# ============================================================
+# SAMPLE DATASET
+# ============================================================
 
-    with st.spinner(
-        "Generating grounded procurement analysis..."
-    ):
+SAMPLE = pd.DataFrame([
+    ["Alpha Supplies", 8.0, 7.0, 9.0, 8.0, 6.0, 7.0],
+    ["Bharat Components", 7.0, 9.0, 7.0, 9.0, 8.0, 8.0],
+    ["CoreTech Industries", 9.0, 8.0, 8.0, 7.0, 7.0, 6.0],
+    ["Delta Manufacturing", 6.0, 8.0, 6.0, 8.0, 9.0, 9.0],
+    ["Elite Engineering", 8.0, 9.0, 8.0, 9.0, 8.0, 7.0],
+    ["Fusion Suppliers", 9.0, 7.0, 8.0, 8.0, 6.0, 8.0],
+    ["Global Parts Co.", 7.0, 8.0, 9.0, 7.0, 7.0, 7.0],
+    ["Horizon Industrial", 8.0, 8.0, 7.0, 8.0, 9.0, 6.0],
+    ["Indus Solutions", 6.0, 9.0, 7.0, 8.0, 8.0, 9.0],
+    ["Jupiter Components", 9.0, 6.0, 9.0, 7.0, 6.0, 8.0],
+], columns=["Vendor"] + CRITERIA)
 
-        explanation, error = get_ai_explanation(
-            ranked,
-            weights
+
+# ============================================================
+# DATA VALIDATION
+# ============================================================
+
+def validate(df):
+
+    errors = []
+
+    required = ["Vendor"] + CRITERIA
+
+    # Check required columns
+    missing_cols = [
+        c for c in required
+        if c not in df.columns
+    ]
+
+    if missing_cols:
+        errors.append(
+            f"Missing columns: {', '.join(missing_cols)}"
         )
+        return errors
 
-    if explanation:
-
-        st.success(
-            "AI analysis generated successfully."
-        )
-
-        st.markdown(
-            explanation
-        )
-
-    else:
-
-        st.warning(
-            error
-        )
-
-        st.info(
-            "The deterministic vendor ranking above "
-            "remains valid even when the AI explanation "
-            "is unavailable."
-        )
-
-
-# ============================================================
-# DECISION SUPPORT DISCLAIMER
-# ============================================================
-
-st.divider()
-
-st.caption(
-    "Decision-support prototype: final supplier selection "
-    "should remain subject to human review, commercial "
-    "negotiation, compliance checks and organizational "
-    "procurement policy."
-)
+    # Check vendor names
+    if df["Vendor"].isna().any():
+        errors.append(
